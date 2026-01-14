@@ -1,0 +1,9 @@
+CARD_WIDTH = 130
+CARD_HEIGHT = 182
+WIDTH, HEIGHT = 800, 800 # screen
+
+# colors
+GREEN = (85, 170, 85)
+GOLD = (255, 215, 0)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)

@@ -1,81 +1,16 @@
 import sys
-import pygame
 import io
-import cairosvg
+import pygame
 import random
-import functools
 import math
-from fractions import Fraction
-from enum import StrEnum, auto
-from dataclasses import dataclass
 
+from .deck import Deck
+from .constants import *
+from .util import *
+from .hand import Hand
+from .stats import Rules, Stats, HandResult, Outcome
+from .policy import Action, dealerPolicyH17, dealerPolicyS17
 
-CARD_HEIGHT = 182
-
-@functools.cache
-def load_svg(path, size=None):
-    if size is None:
-        w, h = None, None
-    else:
-        w, h = size
-    png_bytes = cairosvg.svg2png(url=path, output_width=130, output_height=CARD_HEIGHT)
-    return pygame.image.load(io.BytesIO(png_bytes)).convert_alpha()
-
-@functools.cache
-def get_font(size=48):
-    return pygame.font.Font(None, size)
-
-def render_text(s, color, **posn):
-    font = get_font()
-    surf = font.render(s, True, color)
-    rect = surf.get_rect(**posn)
-    return surf, rect
-
-RANKS = list("23456789JQKA") + ['10']
-SUITS = list("HDSC")
-GREEN = (85, 170, 85)
-GOLD = (255, 215, 0)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-WIDTH, HEIGHT = 800, 800
-
-@dataclass
-class Card:
-    rank: str
-    suit: str
-    value: int = None
-    is_ace: bool = False
-    
-    def __post_init__(self):
-        self.front = load_svg(f"assets/full-deck/{self.rank}{self.suit}.svg")
-        self.back = load_svg(f"assets/full-deck/BB.svg")
-
-        if self.rank.isdigit():
-            self.value = int(self.rank)
-        elif self.rank in 'JQK':
-            self.value = 10
-        else:
-            self.value = 1
-            self.is_ace = True
-        
-
-class Deck:
-    def __init__(self):
-        self.cards = Deck.fullDeckCards()
-        
-    def shuffle(self):
-        for i in range(len(self.cards)-1):
-            j = random.randint(i, len(self.cards)-1)
-            self.cards[i], self.cards[j] = self.cards[j], self.cards[i]
-
-    def __getitem__(self, i):
-        return self.cards[i]
-
-    @staticmethod
-    def fullDeckCards():
-        return [Card(r, s) for r in RANKS for s in SUITS]
-
-        
 class CardStack:
     def __init__(self):
         self.reset([])
@@ -140,7 +75,6 @@ class CardStack:
             j = random.randint(i, len(self.cards)-1)
             self.cards[i], self.cards[j] = self.cards[j], self.cards[i]
 
-
 class Table:
     def __init__(self, screen):
         self.screen = screen
@@ -159,127 +93,16 @@ class Table:
             rect = img.get_rect(midbottom=(pos[0], pos[1]+CARD_HEIGHT/2+anchor[1]))
             self.screen.blit(img, rect)
 
-class Hand:
-    hand_offset = 20
-
-    def __init__(self):
-        self.cards = []
-
-    def addCard(self, card):
-        self.cards.append(card)
-
-    def clear(self):
-        self.cards = []
-
-    def render(self):
-        w = len(self.cards)
-        img = pygame.Surface((self.hand_offset*w+130, CARD_HEIGHT))
-        img.fill(GREEN)
-        for i, c in enumerate(self.cards):
-            single = c.front
-            img.blit(single, (i*self.hand_offset, 0))
-        return img, None
-
-    def has_ace(self) -> int:
-        return any(card.is_ace for card in self.cards)
-    
-    def total(self) -> int:
-        return sum(card.value for card in self.cards)
-
-    def valueStr(self):
-        return ('S' if self.soft() else 'H') + str(self.value())
-        
-    def soft(self):
-        return self.has_ace() and self.total() <= 11
-
-    def value(self):
-        if self.soft():
-            return self.total() + 10
-        else:
-            return self.total()
-    
-    def blackjack(self):
-        return self.value() == 21 and len(self.cards) == 2
-
-class Outcome(StrEnum):
-    BUST='BUST'
-    WIN='WIN'
-    PUSH='PUSH'
-    BLACKJACK='BLACKJACK'
-    LOSE='LOSE'
-
-@dataclass
-class HandResult:
-    outcome: Outcome
-    bet: int
-
-@dataclass
-class Rules:
-    payout: Fraction = Fraction(3,2)
-
-class Action(StrEnum):
-    HIT='HIT'
-    STAND='STAND'
-    # TODO: double down, split, surrender, etc.
-
-class Stats:
-    def __init__(self, rules:Rules=Rules(), bankroll: int=5000):
-        self.rules = rules
-        self.bankroll = bankroll
-        self.roundCounts = dict(BUST=0, WIN=0, PUSH=0, BLACKJACK=0, LOSE=0)
-
-    def calculatePayout(self, handResult: HandResult) -> int:
-        outcome, bet = handResult.outcome, handResult.bet
-        match outcome:
-            case Outcome.BUST:
-                return 0
-            case Outcome.LOSE:
-                return 0
-            case Outcome.WIN:
-                return bet + bet * self.rules.payout
-            case Outcome.BLACKJACK:
-                return bet + bet * self.rules.payout
-            case Outcome.PUSH:
-                return bet
-
-    def turn(self, handResult: HandResult):
-        self.roundCounts[handResult.outcome] += 1
-        self.bankroll += self.calculatePayout(handResult)
-
-    def bet(self, amount: int) -> int:
-        amount = min(self.bankroll, amount)
-        self.bankroll -= amount
-        return amount
-
-    def fmtBankroll(self) -> str:
-        return f"${(self.bankroll / 100):.2f}"
-
-    def hud_text(self):
-        return [
-            (f"Bank: {self.fmtBankroll()}", GOLD, dict(top=50, right=WIDTH-50)),
-            (f"Round: {sum(self.roundCounts.values())}", BLACK, dict(top=100, right=WIDTH-50))
-        ]
-        
-        
-def dealerPolicyH17(hand: Hand) -> Action:
-    if hand.value() >= 17:
-        return Action.STAND
-    else:
-        return Action.HIT
-
-def dealerPolicyS17(hand: Hand) -> Action:
-    if (hand.value() >= 17 and not hand.soft()) or hand.value() >= 18: 
-        return Action.STAND
-    else:
-        return Action.HIT
-
 class Blackjack:
-    def __init__(self, bankroll: int, rules: Rules, screen: pygame.Surface):
+    def __init__(self, bankroll: int, rules: Rules, screen: pygame.Surface, *, dealerPolicy, playerPolicy):
         self.rules = rules
         self.screen = screen
 
         self.dealerHand = Hand()
         self.playerHand = Hand()
+
+        self.dealerPolicy = dealerPolicy
+        self.playerPolicy = playerPolicy
 
         self.shoe = CardStack()
 
@@ -417,18 +240,3 @@ class Blackjack:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_a:
                 self.playerHand.addCard(self.shoe.draw())
-
-def main():
-    pygame.init()
-    size = WIDTH, HEIGHT
-    screen = pygame.display.set_mode(size)
-    game = Blackjack(bankroll=5000, rules=Rules(Fraction(3, 2)), screen=screen)
-
-    game.play()
-
-if __name__ == "__main__":
-    main()
-
-
-
-        
