@@ -1,0 +1,21 @@
+[project]
+name = "blackjack"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Zoravur Singh", email = "zoravur.s@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "cairosvg>=2.8.2",
+    "pygame>=2.6.1",
+    "pyside6>=6.10.1",
+]
+
+[project.scripts]
+blackjack = "blackjack:main"
+
+[build-system]
+requires = ["uv_build>=0.9.11,<0.10.0"]
+build-backend = "uv_build"
