@@ -15,6 +15,8 @@ class GameConfig:
     rules: Rules
     dealerPolicy: Callable[[Hand], Action]
     playerPolicy: Callable[[Hand], Action]
+    delayShort: int
+    delayLong: int
 
 class BlackjackGUI:
     def __init__(self, gc: GameConfig):
@@ -27,7 +29,9 @@ class BlackjackGUI:
                               rules=self.gc.rules, 
                               screen=self.screen, 
                               dealerPolicy=self.gc.dealerPolicy, 
-                              playerPolicy=self.gc.playerPolicy)
+                              playerPolicy=self.gc.playerPolicy,
+                              delayShort=self.gc.delayShort,
+                              delayLong=self.gc.delayLong)
 
     def play(self):
         self.game.play()

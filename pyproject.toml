@@ -19,3 +19,8 @@ blackjack = "blackjack:main"
 [build-system]
 requires = ["uv_build>=0.9.11,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pillow>=12.1.0",
+]

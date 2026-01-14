@@ -1,3 +1,4 @@
+import random
 from .card import Card
 
 RANKS = list("23456789JQKA") + ['10']

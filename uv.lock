@@ -12,12 +12,20 @@ dependencies = [
     { name = "pyside6" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pillow" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "cairosvg", specifier = ">=2.8.2" },
     { name = "pygame", specifier = ">=2.6.1" },
     { name = "pyside6", specifier = ">=6.10.1" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pillow", specifier = ">=12.1.0" }]
 
 [[package]]
 name = "cairocffi"

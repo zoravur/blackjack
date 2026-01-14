@@ -1,4 +1,4 @@
-from .util import load_svg
+from .util import load_bmp, load_svg, load_png
 from dataclasses import dataclass
 
 @dataclass
@@ -9,8 +9,10 @@ class Card:
     is_ace: bool = False
     
     def __post_init__(self):
-        self.front = load_svg(f"assets/full-deck/{self.rank}{self.suit}.svg")
-        self.back = load_svg(f"assets/full-deck/BB.svg")
+        # self.front = load_svg(f"assets/full-deck/{self.rank}{self.suit}.svg")
+        # self.back = load_svg(f"assets/full-deck/BB.svg")
+        self.front = load_png(f"assets/full-deck-png/{self.rank}{self.suit}.png")
+        self.back = load_png(f"assets/full-deck-png/BB.png")
 
         if self.rank.isdigit():
             self.value = int(self.rank)

@@ -94,7 +94,7 @@ class Table:
             self.screen.blit(img, rect)
 
 class Blackjack:
-    def __init__(self, bankroll: int, rules: Rules, screen: pygame.Surface, *, dealerPolicy, playerPolicy):
+    def __init__(self, bankroll: int, rules: Rules, screen: pygame.Surface, *, dealerPolicy, playerPolicy, delayShort, delayLong):
         self.rules = rules
         self.screen = screen
 
@@ -116,6 +116,9 @@ class Blackjack:
         self.outcome = None
         self.clock = pygame.time.Clock()
 
+        self.delayShort = delayShort
+        self.delayLong = delayLong
+
     def turn(self):
         pass
 
@@ -127,7 +130,7 @@ class Blackjack:
         self.shoe.shuffle()
         self.shoe.placeCutCard(self.shoe.draw())
 
-    def render(self, delay=500):
+    def render(self, delay=None):
         self.screen.fill(GREEN)
         self.table.render()
 
@@ -153,7 +156,8 @@ class Blackjack:
 
         pygame.display.flip()
 
-        pygame.time.delay(delay)
+        if delay or self.delayShort:
+            pygame.time.delay(delay or self.delayShort)
 
 
     def deal(self):
@@ -231,7 +235,7 @@ class Blackjack:
             handResult = self.hand()
             self.outcome = handResult.outcome
             self.stats.turn(handResult)
-            self.render(1000)
+            self.render(self.delayLong)
             if self.shoe.cutCardSeen:
                 self.setupShoe()
 
