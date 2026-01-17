@@ -1,5 +1,4 @@
 import sys
-import io
 import pygame
 import random
 import math
@@ -118,12 +117,6 @@ class Blackjack:
 
         self.delayShort = delayShort
         self.delayLong = delayLong
-
-    def turn(self):
-        pass
-
-    def step(self):
-        pass
 
     def setupShoe(self):
         self.shoe.reset(Deck.fullDeckCards() * 6)
