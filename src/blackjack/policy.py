@@ -16,7 +16,7 @@ class Action(Enum):
     # TODO: double down, split, surrender, etc.
 
 def init_value_table():
-    return np.zeros((10, 10, 2, 2), dtype=VALUE_FLOAT_TYPE)
+    return np.zeros((10, 10, 2, 2), dtype=np.float64)
 
 def value_to_fixed_policy(value_table: ValueTable):
     return np.argmax(value_table, axis=-1)
@@ -27,16 +27,61 @@ def split_observation_matrix(observations: np.ndarray):
     s = observations[..., 2]
     return i, j, s
 
-def sample_epsilon_greedy(rng: np.random.Generator, value_table: ValueTable, eps: np.float64, observations: np.ndarray):
+def sample_epsilon_greedy(
+    rng: np.random.Generator,
+    value_table,
+    eps: np.float64,
+    observations: np.ndarray,
+):
     i, j, s = split_observation_matrix(observations)
 
-    qs = value_table[i, j, s]
-    if rng.random() < eps:
-        a = rng.random.choice([0, 1], size=observations.shape)
-    else:
-        a = rng.random.choice(np.flatnonzero(qs == qs.max()))
-    
+    out_shape = observations.shape[:-1]
+    a = np.zeros(out_shape, dtype=np.uint8)
+
+    mask = (j >= 12)
+    if not np.any(mask):
+        return a
+
+    qs = value_table[i[mask], j[mask], s[mask]]   # shape: (N, n_actions)
+    n = qs.shape[0]
+    n_actions = qs.shape[-1]
+
+    # per-sample exploration decision
+    explore = rng.random(n) < eps
+
+    # exploration actions
+    a_masked = np.empty(n, dtype=np.uint8)
+    a_masked[explore] = rng.integers(0, n_actions, size=np.sum(explore), dtype=np.uint8)
+
+    # exploitation with random tie-break per row
+    greedy = ~explore
+    if np.any(greedy):
+        qg = qs[greedy]
+        maxq = qg.max(axis=-1, keepdims=True)
+        ties = (qg == maxq)                       # (Ng, n_actions)
+        probs = ties / ties.sum(axis=-1, keepdims=True)
+        a_masked[greedy] = np.array(
+            [rng.choice(n_actions, p=p) for p in probs],
+            dtype=np.uint8,
+        )
+
+    a[mask] = a_masked
     return a
+
+# def sample_epsilon_greedy(rng: np.random.Generator, value_table: ValueTable, eps: np.float64, observations: np.ndarray):
+#     i, j, s = split_observation_matrix(observations)
+# 
+#     a = np.zeros_like(observations.shape[:-1], dtype=np.uint8)
+#     # a[j < 12] = 0
+# 
+#     qs = value_table[i[j >= 12], j[j >= 12], s[j >= 12]]
+#     if rng.random() < eps:
+#         a[j >= 12] = rng.choice([0, 1], size=observations[j >= 12].shape[:-1])
+#     else:
+#         a[j >= 12] = rng.choice(np.flatnonzero(qs == qs.max(initial=-np.inf)), 
+#                                 size=observations[j >= 12].shape[:-1])
+#     
+#     return a
 
 def calculate_total_reward(rewards: np.ndarray):
     # gamma = 1 (assumed)

@@ -18,7 +18,7 @@ def main():
         obs, mask = env.state.obs()
 
         obss, actions, masks, rewards = [], [], [], []
-        for _ in range(env.state.decks * 52):
+        for _ in range(env.state.n_decks * 52):
             obss.append(obs)
             masks.append(mask)
             action = agent.sample(rng, obs, training=True)

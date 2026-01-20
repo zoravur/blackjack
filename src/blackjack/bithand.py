@@ -12,16 +12,14 @@ UPCARD_SHIFT = 12
 UPCARD_BITS = 4
 
 def make_card(rank: np.ndarray) -> np.ndarray:
-    ((rank << UPCARD_SHIFT) & MASK_UPCARD) | (
+    return ((rank << UPCARD_SHIFT) & MASK_UPCARD) | (
         ((rank == 1) << ACE_SHIFT) & MASK_ACES) + (rank & MASK_TOTAL)
 
-def add_card(hand: np.ndarray | np.ndarray, card: np.ndarray) -> None:
-    # mask = MASK_ACES | MASK_TOTAL
-    # update = hand | (card & mask)
-    # return np.where(hand == 0, card, update)
+def add_card(hand: np.ndarray | np.ndarray, card: np.ndarray):
     mask0 = (hand == 0)                 # boolean temp
     hand |= (card & (MASK_ACES | MASK_TOTAL))  # in-place masked merge
     hand[mask0] = card[mask0]           # overwrite the “first card” cases
+    return hand
 
 def hard_total(h: np.ndarray) -> np.array:
     return h & MASK_TOTAL
@@ -32,14 +30,12 @@ def ace_count(h: np.ndarray) -> np.array:
 def best_total(h: np.ndarray) -> np.array:
     t = hard_total(h)
     a = ace_count(h)
-    if a > 0 and t + 10 <= 21:
-        return t + 10
-    return t
+    return t + ((a > 0) & (t + 10 <= 21)) * 10
 
 def soft(h: np.ndarray) -> np.array:
     t = hard_total(h)
     a = ace_count(h)
-    return a > 0 and t + 10 <= 21
+    return (a > 0) & (t + 10 <= 21)
 
 def upcard(h: np.ndarray) -> np.array:
-    return (h | MASK_UPCARD) >> UPCARD_SHIFT
+    return (h & MASK_UPCARD) >> UPCARD_SHIFT

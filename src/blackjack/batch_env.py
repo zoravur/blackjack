@@ -1,126 +1,204 @@
 from .policy import Agent
 import numpy as np
-from enum import IntFlag
 from dataclasses import dataclass
 from . import bithand as hand
 
-class Flags(IntFlag):
-    DONE = 1 << 0
-    TRUNCATED = 1 << 1
-    P_TURN = 1 << 2
-    D_TURN = 1 << 3
-    P_STAND = 1 << 4
-    D_STAND = 1 << 5
+
+# --- numpy-native bitflags (uint8 everywhere) --------------------------------
+class F:
+    DONE      = np.uint8(1 << 0)
+    TRUNCATED = np.uint8(1 << 1)
+    P_TURN    = np.uint8(1 << 2)
+    D_TURN    = np.uint8(1 << 3)
+    P_STAND   = np.uint8(1 << 4)
+    D_STAND   = np.uint8(1 << 5)
+
+    # useful masks
+    TURN_MASK  = np.uint8(P_TURN | D_TURN)
+    STAND_MASK = np.uint8(P_STAND | D_STAND)
+
 
 @dataclass
 class EnvState:
-    B: int # batch dim
+    B: int
     n_decks: int
-    total: int # number of cards left
+    total: int
 
-    decks: np.ndarray # np.array[10] -- rank counts
-    ph: np.ndarray # int -- player hands
-    dh: np.ndarray # int -- dealer hands
-    flags: np.ndarray # int -- simulation control flags
-    phase: np.ndarray # int -- how many cards we are into the shoe
-    obs_mask: np.ndarray # bool -- the runs which require an action
+    decks: np.ndarray      # (B, 10) float-ish counts
+    ph: np.ndarray         # (B,) uint16 encoded hands
+    dh: np.ndarray         # (B,) uint16 encoded hands
+    flags: np.ndarray      # (B,) uint8 bitflags
+    phase: np.ndarray      # (B,) uint32
+    obs_mask: np.ndarray   # (B,) bool
 
     def __init__(self, B, n_decks):
-        self.B = B
-        self.n_decks = n_decks
+        self.B = int(B)
+        self.n_decks = int(n_decks)
 
-        self.decks = np.ones((self.B, 10)) * self.n_decks 
+        # rank counts: 1..9 have 4 per deck, 10 has 16 per deck
+        self.decks = np.ones((self.B, 10), dtype=np.int16) * 4
         self.decks[:, 9] = 16
         self.decks *= self.n_decks
-        self.total = self.decks.sum(axis=-1)[0]
-        assert np.all(self.total == 52*self.n_decks)
 
-        self.ph = np.zeros((self.B), dtype=np.uint16)
-        self.dh = np.zeros((self.B), dtype=np.uint16)
-        self.flags = np.zeros((self.B), dtype=np.uint8)
-        self.phase = np.zeros((self.B), dtype=np.uint32)
-        self.obs_mask = np.zeros((self.B), dtype=np.bool)
+        # total cards remaining (lockstep scalar)
+        self.total = int(self.decks.sum(axis=-1)[0])
+        assert self.total == 52 * self.n_decks
+
+        self.ph = np.zeros((self.B,), dtype=np.uint16)
+        self.dh = np.zeros((self.B,), dtype=np.uint16)
+        self.flags = np.zeros((self.B,), dtype=np.uint8)
+        self.phase = np.zeros((self.B,), dtype=np.uint32)
+        self.obs_mask = np.zeros((self.B,), dtype=np.bool_)
 
     def obs(self) -> tuple[np.ndarray, np.ndarray]:
-        return np.stack([hand.upcard(self.dh), 
-                         hand.best_total(self.ph), 
-                         hand.soft(self.ph)], axis=-1), self.obs_mask
+        obs = np.stack(
+            [
+                hand.upcard(self.dh),
+                hand.best_total(self.ph),
+                hand.soft(self.ph),
+            ],
+            axis=-1,
+        )
+        return obs, self.obs_mask
 
-    def draw(self, rng):
-        u = np.random.floor(rng.random(self.decks.shape[:-1]) * self.total)
+    def draw(self, rng) -> np.ndarray:
+        """
+        Draw one card for every element in batch, updating deck counts.
+        Returns encoded cards (same shape as (B,)).
+        """
+        # choose uniform integer in [0, total)
+        u = np.floor(rng.random(self.B) * self.total).astype(np.int32)
 
-        cs = self.decks.cumsum(axis=-1)
-        k = (cs > u[:, None]).argmax(axis=-1) 
+        cs = self.decks.cumsum(axis=-1)  # (B, 10)
+        k = (cs > u[:, None]).argmax(axis=-1).astype(np.int32)  # (B,)
 
-        self.decks[np.arange(self.decks.shape[0]), k] -= 1 # scatter decrement
-        self.total -= 1 # total might be a scalar if we're doing true lockstep
-        return hand.make_card(k+1)
+        self.decks[np.arange(self.B), k] -= 1
+        self.total -= 1
 
-class BatchedEnv():
-    def reset(self, seed=0, batch_size: int=2**16, n_decks: int=8):
+        return hand.make_card(k + 1)
+
+
+class BatchedEnv:
+    def reset(self, seed=0, batch_size: int = 2**16, n_decks: int = 8):
         self.rng = np.random.default_rng(seed)
         self.state = EnvState(batch_size, n_decks)
 
     def step(self, action, action_mask) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray]:
-        assert np.all(self.state.obs_mask == action_mask)
+        """
+        action: (B,) int {0=hit, 1=stand} (or any convention you use)
+        action_mask: (B,) bool, must match current obs_mask
+        """
+        s = self.state
+        assert np.all(s.obs_mask == action_mask)
 
-        next_card = self.state.draw(self.rng)
-        flags = self.state.flags
-        phase = self.state.phase
-        ph = self.state.ph
-        dh = self.state.dh
-        B = self.state.B
+        # normalize input dtypes
+        action = np.asarray(action)
+        action_mask = np.asarray(action_mask, dtype=np.bool_)
 
+        next_card = s.draw(self.rng)
+
+        flags = s.flags          # uint8 view
+        phase = s.phase
+        ph = s.ph
+        dh = s.dh
+        B = s.B
+
+        # --- dealing phase ----------------------------------------------------
         dealing = phase < 4
-        deal_dealer = phase % 2 == 1 and dealing
-        deal_player = phase % 2 == 0 and dealing
+        deal_dealer = (phase % 2 == 1) & dealing
+        deal_player = (phase % 2 == 0) & dealing
 
-        flags |= Flags.P_STAND and action == 1 and action_mask
-        flags |= Flags.D_STAND and hand.best_total(dh) < 17
-        flags |= Flags.P_TURN and phase == 4
+        # --- update flags (numpy uint8 only) ---------------------------------
+        # player stands if they choose action==1 when a decision is required
+        stand_now = (action == 1) & action_mask
+        flags[stand_now] |= F.P_STAND
 
-        p_hit = (flags & Flags.P_STAND) == 0 and action_mask & flags & Flags.P_TURN and not dealing
+        # dealer stands on 17+
+        dealer_stand = hand.best_total(dh) >= 17
+        flags[dealer_stand] |= F.D_STAND
 
-        flags &= ~Flags.P_TURN or p_hit
-        flags |= Flags.D_TURN and (flags & Flags.P_TURN) == 0 and phase > 4
+        # after initial deal, player turn begins
+        flags[phase == 4] |= F.P_TURN
 
-        d_hit = (flags & Flags.D_STAND) == 0 and flags & Flags.D_TURN and not dealing
+        # player hits if:
+        # - not stood
+        # - action_mask says env wants action
+        # - it's player's turn
+        # - not still dealing
+        p_hit = (
+            ((flags & F.P_STAND) == 0)
+            & action_mask
+            & ((flags & F.P_TURN) != 0)
+            & ~dealing
+        )
 
-        p_mask = deal_player or p_hit
-        d_mask = deal_dealer or d_hit
+        # if player does NOT hit, end player turn
+        flags[~p_hit] &= np.uint8(~F.P_TURN)
 
-        hand.add_card(ph[p_mask], next_card[p_mask])
-        hand.add_card(dh[d_mask], next_card[d_mask])
+        # once player turn is over (phase>4), dealer turn begins
+        start_dealer_turn = ((flags & F.P_TURN) == 0) & (phase > 4)
+        flags[start_dealer_turn] |= F.D_TURN
 
-        # all cards dealt
-        stand = (flags & (Flags.P_STAND | Flags.D_STAND)) == 0 
+        # dealer hits if:
+        # - not stood
+        # - it's dealer's turn
+        # - not dealing
+        d_hit = (
+            ((flags & F.D_STAND) == 0)
+            & ((flags & F.D_TURN) != 0)
+            & ~dealing
+        )
+
+        # --- apply draws ------------------------------------------------------
+        p_mask = deal_player | p_hit
+        d_mask = deal_dealer | d_hit
+
+        ph[p_mask] = hand.add_card(ph[p_mask], next_card[p_mask])
+        dh[d_mask] = hand.add_card(dh[d_mask], next_card[d_mask])
+        phase[p_mask | d_mask] += 1
+
+        # --- terminal logic ---------------------------------------------------
+        stand = ((flags & F.P_STAND) != 0) & ((flags & F.D_STAND) != 0)
 
         p_score = hand.best_total(ph)
         d_score = hand.best_total(dh)
 
-        player_blackjack = p_score == 21 and phase == 3 # phase == 3 -> check after deal
-        dealer_blackjack = d_score == 21 and phase == 3 # phase == 3 -> check after deal
+        # after 2 cards each (phase==4): check blackjack state
+        player_blackjack = (p_score == 21) & (phase == 4)
+        dealer_blackjack = (d_score == 21) & (phase == 4)
 
-        blackjack_win = player_blackjack
-        lose = p_score > 21 or (stand and d_score > p_score) or dealer_blackjack
-        push = (p_score == d_score) and (stand or player_blackjack)
-        win = d_score > 21
+        blackjack_win = player_blackjack & ~dealer_blackjack
+        lose = (p_score > 21) | (stand & (d_score > p_score)) | dealer_blackjack
+        push = (p_score == d_score) & (stand | player_blackjack | dealer_blackjack)
+        win = (p_score <= 21) & ((d_score > 21) | (stand & (d_score < p_score)))
 
-        round_finished_mask = win or lose or push or player_blackjack
+        round_finished_mask = win | lose | push | blackjack_win
 
-        rewards = np.zeros(B)
+        rewards = np.zeros(B, dtype=np.float32)
         rewards[blackjack_win] = 1.5
-        rewards[lose] = -1.0
         rewards[push] = 0.0
         rewards[win] = 1.0
+        rewards[lose] = -1.0
 
+        # --- reset finished rounds -------------------------------------------
         phase[round_finished_mask] = 0
         ph[round_finished_mask] = 0
-        dh[round_finished_mask] = 0 
+        dh[round_finished_mask] = 0
         flags[round_finished_mask] = 0
 
-        hand.add_card(ph[stand], next_card[stand])
-        phase[stand] += 1
-        
-        self.state.obs_mask = flags & Flags.P_TURN
-        return self.state.obs(), rewards
+        # --- immediately begin dealing new rounds for finished lanes ----------
+        start_new = round_finished_mask
+
+        dealing2 = start_new & (phase < 4)
+        deal_dealer2 = (phase % 2 == 1) & dealing2
+        deal_player2 = (phase % 2 == 0) & dealing2
+
+        # reuse next_card: "don't worry about other bugs right now"
+        ph[deal_player2] = hand.add_card(ph[deal_player2], next_card[deal_player2])
+        dh[deal_dealer2] = hand.add_card(dh[deal_dealer2], next_card[deal_dealer2])
+        phase[deal_player2 | deal_dealer2] += 1
+
+        # env requests action only on player turn
+        s.obs_mask = (flags & F.P_TURN) != 0
+
+        return s.obs(), rewards
