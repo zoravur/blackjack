@@ -1,6 +1,7 @@
 from enum import StrEnum, Enum
 from .hand import Hand
 import numpy as np
+import math
 
 
 type VALUE_FLOAT_TYPE = np.float64
@@ -42,28 +43,47 @@ def calculate_total_reward(rewards: np.ndarray):
     return np.flip(np.cumsum(np.flip(rewards, -1), -1), -1)
 
 class Agent:
-    def __init__(self, alpha=0.0001, eps=0.1):
-        self.alpha = 0.0001
+    def __init__(self, alpha=0.0001):
+        self.alpha = alpha
         self.q = init_value_table()
         self.k = 0
 
     def eps(self):
-        return 1 / self.k
+        return 1 / math.sqrt(self.k)
     
     def sample(self, rng: np.random.Generator, observations, training: bool):
         self.k += observations.size
         return sample_epsilon_greedy(rng, self.q, self.eps() if training else 0, observations)
         
-    def trajectory_update(self, actions: np.ndarray, observations: np.ndarray, rewards: np.ndarray):
-        assert actions.shape == observations.shape[:-1] == rewards.shape, "Trajectory shapes must match"
+    def trajectory_update(
+        self,
+        actions: np.ndarray,        # (B,T)
+        observations: np.ndarray,    # (B,T,3)
+        rewards: np.ndarray,         # (B,T)
+        mask: np.ndarray,            # (B,T) boolean, True = valid
+    ):
+        assert actions.shape == observations.shape[:-1] == rewards.shape == mask.shape, \
+            "Trajectory shapes must match"
 
         G_bt = calculate_total_reward(rewards)  # (B,T)
 
+        # Flatten everything
         i = observations[..., 0].reshape(-1)
         j = observations[..., 1].reshape(-1)
         s = observations[..., 2].reshape(-1)
         a = actions.reshape(-1)
         G = G_bt.reshape(-1)
+        m = mask.reshape(-1).astype(bool)
+
+        # Filter out invalid steps
+        i = i[m]
+        j = j[m]
+        s = s[m]
+        a = a[m]
+        G = G[m]
+
+        if G.size == 0:
+            return G_bt[:, 0]  # nothing to update
 
         I, J, S, A = self.q.shape
         flat = (((i * J + j) * S + s) * A + a)
@@ -88,6 +108,41 @@ class Agent:
         self.q[i_u, j_u, s_u, a_u] = q_old + alpha_eff * (Gmean - q_old)
 
         return G_bt[:, 0]
+
+    # def trajectory_update(self, actions: np.ndarray, observations: np.ndarray, rewards: np.ndarray):
+    #     assert actions.shape == observations.shape[:-1] == rewards.shape, "Trajectory shapes must match"
+
+    #     G_bt = calculate_total_reward(rewards)  # (B,T)
+
+    #     i = observations[..., 0].reshape(-1)
+    #     j = observations[..., 1].reshape(-1)
+    #     s = observations[..., 2].reshape(-1)
+    #     a = actions.reshape(-1)
+    #     G = G_bt.reshape(-1)
+
+    #     I, J, S, A = self.q.shape
+    #     flat = (((i * J + j) * S + s) * A + a)
+
+    #     uniq, inv, k = np.unique(flat, return_inverse=True, return_counts=True)
+
+    #     Gsum = np.zeros(len(uniq), dtype=np.float64)
+    #     np.add.at(Gsum, inv, G)
+    #     Gmean = Gsum / k
+
+    #     a_u = uniq % A
+    #     tmp = uniq // A
+    #     s_u = tmp % S
+    #     tmp //= S
+    #     j_u = tmp % J
+    #     i_u = tmp // J
+
+    #     self.counts[i_u, j_u, s_u, a_u] += k
+
+    #     alpha_eff = 1.0 - (1.0 - self.alpha) ** k
+    #     q_old = self.q[i_u, j_u, s_u, a_u]
+    #     self.q[i_u, j_u, s_u, a_u] = q_old + alpha_eff * (Gmean - q_old)
+
+    #     return G_bt[:, 0]
 
 def dealerPolicyH17(hand: Hand) -> Action:
     if hand.value() >= 17:

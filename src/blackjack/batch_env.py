@@ -1,10 +1,10 @@
 from .policy import Agent
 import numpy as np
-from enum import Enum
+from enum import IntFlag
 from dataclasses import dataclass
 from . import bithand as hand
 
-class Flags(Enum):
+class Flags(IntFlag):
     DONE = 1 << 0
     TRUNCATED = 1 << 1
     P_TURN = 1 << 2
@@ -61,7 +61,7 @@ class BatchedEnv():
         self.rng = np.random.default_rng(seed)
         self.state = EnvState(batch_size, n_decks)
 
-    def step(self, action, action_mask) -> EnvState:
+    def step(self, action, action_mask) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray]:
         assert np.all(self.state.obs_mask == action_mask)
 
         next_card = self.state.draw(self.rng)
