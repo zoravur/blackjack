@@ -7,9 +7,9 @@ MASK_UPCARD = np.uint16(0xF000)
 TOTAL_BITS = 8
 ACE_SHIFT = 8
 
-ACE_BITS = 4
-UPCARD_SHIFT = 12
-UPCARD_BITS = 4
+ACE_BITS = np.uint16(4)
+UPCARD_SHIFT = np.uint16(12)
+UPCARD_BITS = np.uint16(4)
 
 def make_card(rank: np.ndarray) -> np.ndarray:
     return ((rank << UPCARD_SHIFT) & MASK_UPCARD) | (
@@ -17,7 +17,7 @@ def make_card(rank: np.ndarray) -> np.ndarray:
 
 def add_card(hand: np.ndarray | np.ndarray, card: np.ndarray):
     mask0 = (hand == 0)                 # boolean temp
-    hand |= (card & (MASK_ACES | MASK_TOTAL))  # in-place masked merge
+    hand += np.uint16(card & (MASK_ACES | MASK_TOTAL))  # in-place masked merge
     hand[mask0] = card[mask0]           # overwrite the “first card” cases
     return hand
 
