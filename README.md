@@ -4,3 +4,7 @@ A blackjack
 - GUI implementation, 
 - RL env, and 
 - RL algorithms for the env
+
+TODO
+
+- Add the RL env
